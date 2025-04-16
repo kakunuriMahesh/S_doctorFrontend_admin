@@ -8,11 +8,14 @@ const ForgotPassword = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
+  const Api = "https://s-doctorbackend-admin.onrender.com"
+  // const local_Api = "http://localhost:5000"
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await axios.post('http://localhost:5000/api/admin/forgot-password', { email });
+      const response = await axios.post(`${Api}/api/admin/forgot-password`, { email });
       toast.success('Reset token generated! Check console for token.');
       console.log('Reset Token:', response.data.resetToken);
       navigate('/reset-password', { state: { email } });

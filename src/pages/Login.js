@@ -11,12 +11,14 @@ const Login = () => {
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+const Api = "https://s-doctorbackend-admin.onrender.com/"
+// const local_Api = "http://localhost:5000"
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await axios.post('http://localhost:5000/api/admin/login', formData);
+      const response = await axios.post(`${Api}/api/admin/login`, formData);
       localStorage.setItem('token', response.data.token);
       toast.success('Login successful!');
       navigate('/admin/panel');

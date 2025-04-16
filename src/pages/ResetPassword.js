@@ -14,11 +14,14 @@ const ResetPassword = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const Api = "https://s-doctorbackend-admin.onrender.com"
+  // const local_Api = "http://localhost:5000"
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await axios.post('http://localhost:5000/api/admin/reset-password', { ...formData, email });
+      await axios.post(`${Api}/api/admin/reset-password`, { ...formData, email });
       toast.success('Password reset successful!');
       navigate('/login');
     } catch (error) {

@@ -36,9 +36,12 @@ function DoctorPanel() {
     fetchAppointments();
   }, []);
 
+  const Api = "https://s-doctorbackend-admin.onrender.com"
+// const local_Api = "http://localhost:5000"
+
   const fetchSettings = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/settings', {
+      const res = await axios.get(`${Api}/api/settings`, {
         headers: getAuthHeaders(),
       });
       setPrice(res.data.basePrice || '');
@@ -51,7 +54,7 @@ function DoctorPanel() {
 
   const fetchAppointments = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/appointments', {
+      const res = await axios.get(`${Api}/api/appointments`, {
         headers: getAuthHeaders(),
       });
       console.log('Appointments fetched:', res.data);
@@ -63,7 +66,7 @@ function DoctorPanel() {
 
   const fetchCoupons = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/coupons', {
+      const res = await axios.get(`${Api}/api/coupons`, {
         headers: getAuthHeaders(),
       });
       setCoupons(res.data);
@@ -74,7 +77,7 @@ function DoctorPanel() {
 
   const fetchAvailabilities = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/availability', {
+      const res = await axios.get(`${Api}/api/availability`, {
         headers: getAuthHeaders(),
       });
       setSavedAvailabilities(res.data);
@@ -87,7 +90,7 @@ function DoctorPanel() {
     if (!price || isNaN(price) || price <= 0) return alert('Price must be a positive number');
     try {
       await axios.post(
-        'http://localhost:5000/api/settings/price',
+        `${Api}/api/settings/price`,
         { doctorId: 'doctor1', basePrice: parseInt(price) },
         { headers: getAuthHeaders() }
       );
@@ -102,7 +105,7 @@ function DoctorPanel() {
     if (isMessageEnabled && !message) return alert('Message is required when enabled');
     try {
       await axios.post(
-        'http://localhost:5000/api/settings/message',
+        `${Api}/api/settings/message`,
         { doctorId: 'doctor1', bookingMessage: message, isMessageEnabled },
         { headers: getAuthHeaders() }
       );
@@ -117,7 +120,7 @@ function DoctorPanel() {
     if (!discount || isNaN(discount) || discount < 0 || discount > 100) return alert('Discount must be between 0 and 100');
     try {
       const res = await axios.post(
-        'http://localhost:5000/api/coupon',
+        `${Api}/api/coupon`,
         { doctorId: 'doctor1', discountPercentage: parseInt(discount) },
         { headers: getAuthHeaders() }
       );
@@ -131,7 +134,7 @@ function DoctorPanel() {
 
   const deleteCoupon = async (code) => {
     try {
-      await axios.delete(`http://localhost:5000/api/coupon/${code}`, {
+      await axios.delete(`${Api}/api/coupon/${code}`, {
         headers: getAuthHeaders(),
       });
       setCoupons(coupons.filter(c => c.code !== code));
@@ -167,7 +170,7 @@ function DoctorPanel() {
 
     try {
       await axios.post(
-        'http://localhost:5000/api/availability',
+        `${Api}/api/availability`,
         {
           doctorId: 'doctor1',
           fromDate,
@@ -199,7 +202,7 @@ function DoctorPanel() {
 
   const deleteAvailability = async (id) => {
     try {
-      await axios.delete(`http://localhost:5000/api/availability/${id}`, {
+      await axios.delete(`${Api}/api/availability/${id}`, {
         headers: getAuthHeaders(),
       });
       setSavedAvailabilities(savedAvailabilities.filter(a => a._id !== id));
@@ -210,7 +213,7 @@ function DoctorPanel() {
 
   const deleteAppointments = async (ids) => {
     try {
-      await axios.delete('http://localhost:5000/api/appointment', {
+      await axios.delete(`${Api}/api/appointment`, {
         headers: getAuthHeaders(),
         data: { ids },
       });

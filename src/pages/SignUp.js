@@ -12,11 +12,14 @@ const Signup = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const Api = "https://s-doctorbackend-admin.onrender.com"
+  // const local_Api = "http://localhost:5000"
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await axios.post('http://localhost:5000/api/admin/signup', formData);
+      await axios.post(`${Api}/api/admin/signup`, formData);
       toast.success('Admin created successfully!');
       navigate('/login');
     } catch (error) {
