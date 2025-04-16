@@ -12,6 +12,9 @@ import ResetPassword from './pages/ResetPassword';
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
 
+  const Api = "https://s-doctorbackend-admin.onrender.com"
+  // const local_Api = "http://localhost:5000"
+
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
@@ -20,7 +23,7 @@ const App = () => {
         return;
       }
       try {
-        await axios.get('http://localhost:5000/api/settings', {
+        await axios.get(`${Api}/api/settings`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setIsAuthenticated(true);

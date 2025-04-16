@@ -11,7 +11,7 @@ const Login = () => {
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
-const Api = "https://s-doctorbackend-admin.onrender.com/"
+const Api = "https://s-doctorbackend-admin.onrender.com"
 // const local_Api = "http://localhost:5000"
 
   const handleSubmit = async (e) => {
