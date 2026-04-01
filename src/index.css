@@ -1,10 +1,25 @@
-body {
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+* {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #f1f5f9;
+  color: #0f172a;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 code {
@@ -12,23 +27,23 @@ code {
     monospace;
 }
 
+/* Reset form elements to use Inter */
+input, select, button, textarea {
+  font-family: 'Inter', sans-serif;
+}
 
-.availability-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
-  margin-bottom: 10px;
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
 }
-.availability-row div {
-  display: flex;
-  flex-direction: column;
+
+/* Remove default focus outlines, add custom ones */
+*:focus {
+  outline: none;
 }
-.availability-row label {
-  font-size: 0.9em;
-  margin-bottom: 5px;
-}
-.availability-row input {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+
+/* Better link defaults */
+a {
+  text-decoration: none;
+  color: inherit;
 }

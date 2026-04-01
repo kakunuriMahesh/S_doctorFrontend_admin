@@ -1,1439 +1,475 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { toast } from 'react-toastify';
+import { FiMenu, FiX, FiClipboard, FiGlobe, FiTool, FiSettings, FiLogOut, FiCalendar, FiArrowRight, FiSearch, FiInbox, FiEye, FiTrash2 } from 'react-icons/fi';
+import { FaStethoscope, FaRegHospital } from 'react-icons/fa';
 import './DoctorPanel.css';
 
-function DoctorPanel() {
-  const [price, setPrice] = useState('');
-  const [message, setMessage] = useState('');
-  const [isMessageEnabled, setIsMessageEnabled] = useState(false);
-  const [discount, setDiscount] = useState('');
-  const [coupons, setCoupons] = useState([]);
-  const [availability, setAvailability] = useState({
-    fromDate: '',
-    toDate: '',
-    startTime: '',
-    endTime: '',
-    slotDuration: '',
-    breakDuration: '',
-    pricePerSlot: '',
-  });
-  const [savedAvailabilities, setSavedAvailabilities] = useState([]);
-  const [appointments, setAppointments] = useState([]);
-  const [tab, setTab] = useState('new');
-  const [selectedExpired, setSelectedExpired] = useState([]);
-  const [modal, setModal] = useState(null);
+const Api = "https://s-doctorbackend-admin.onrender.com";
+// const Api = "http://localhost:5000";
 
-  // Get token from localStorage
+const STATUS_OPTIONS = [
+  { value: 'new', label: 'New' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'no-show', label: 'No Show' },
+];
+
+const getDisplayStatus = (status) => {
+  if (status === 'success' || status === 'new') return 'new';
+  if (status === 'pending') return 'new';
+  return status || 'new';
+};
+
+const getStatusLabel = (status) => {
+  const display = getDisplayStatus(status);
+  const option = STATUS_OPTIONS.find(o => o.value === display);
+  return option ? option.label : status;
+};
+
+function DoctorPanel() {
+  const navigate = useNavigate();
+
+  const [appointments, setAppointments] = useState([]);
+  const [savedAvailabilities, setSavedAvailabilities] = useState([]);
+  const [price, setPrice] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const [activeView, setActiveView] = useState('bookings');
+  const [modeFilter, setModeFilter] = useState('all');
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const [previewModal, setPreviewModal] = useState(null);
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  useEffect(() => {
-    fetchSettings();
-    fetchCoupons();
-    fetchAvailabilities();
-    fetchAppointments();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
-  const Api = "https://s-doctorbackend-admin.onrender.com"
-// const local_Api = "http://localhost:5000"
-
-  const fetchSettings = async () => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const res = await axios.get(`${Api}/api/settings`, {
-        headers: getAuthHeaders(),
-      });
-      setPrice(res.data.basePrice || '');
-      setMessage(res.data.bookingMessage || '');
-      setIsMessageEnabled(res.data.isMessageEnabled || false);
-    } catch (error) {
-      console.error('Error fetching settings:', error.response || error.message);
+      await Promise.all([fetchAppointments(), fetchAvailabilities(), fetchSettings()]);
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchAppointments = async () => {
     try {
-      const res = await axios.get(`${Api}/api/appointments`, {
-        headers: getAuthHeaders(),
-      });
-      console.log('Appointments fetched:', res.data);
+      const res = await axios.get(`${Api}/api/appointments`, { headers: getAuthHeaders() });
       setAppointments(res.data);
     } catch (error) {
-      console.error('Error fetching appointments:', error.response || error.message);
-    }
-  };
-
-  const fetchCoupons = async () => {
-    try {
-      const res = await axios.get(`${Api}/api/coupons`, {
-        headers: getAuthHeaders(),
-      });
-      setCoupons(res.data);
-    } catch (error) {
-      console.error('Error fetching coupons:', error.response || error.message);
+      console.error('Error fetching appointments:', error);
+      if (error.response?.status === 401) handleLogout();
     }
   };
 
   const fetchAvailabilities = async () => {
     try {
-      const res = await axios.get(`${Api}/api/availability`, {
-        headers: getAuthHeaders(),
-      });
+      const res = await axios.get(`${Api}/api/availability`, { headers: getAuthHeaders() });
+      // console.log(res.data);
       setSavedAvailabilities(res.data);
     } catch (error) {
-      console.error('Error fetching availabilities:', error.response || error.message);
+      console.error('Error fetching availabilities:', error);
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await axios.get(`${Api}/api/settings`, { headers: getAuthHeaders() });
+      setPrice(res.data.basePrice || '');
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+    }
+  };
+
+  const updateStatus = async (appointmentId, newStatus) => {
+    try {
+      await axios.put(`${Api}/api/appointment/${appointmentId}/status`, { status: newStatus }, { headers: getAuthHeaders() });
+      setAppointments(prev => prev.map(a => a._id === appointmentId ? { ...a, status: newStatus } : a));
+      toast.success(`Status updated to ${getStatusLabel(newStatus)}`);
+    } catch (error) {
+      toast.error('Failed to update status');
+    }
+  };
+
+  const deleteAppointment = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this appointment?')) return;
+    try {
+      await axios.delete(`${Api}/api/appointment`, { headers: getAuthHeaders(), data: { ids: [id] } });
+      setAppointments(prev => prev.filter(a => a._id !== id));
+      setPreviewModal(null);
+      toast.success('Appointment deleted');
+    } catch (error) {
+      toast.error('Failed to delete appointment');
     }
   };
 
   const updatePrice = async () => {
-    if (!price || isNaN(price) || price <= 0) return alert('Price must be a positive number');
+    if (!price || isNaN(price) || price <= 0) return toast.error('Price must be a positive number');
     try {
-      await axios.post(
-        `${Api}/api/settings/price`,
-        { doctorId: 'doctor1', basePrice: parseInt(price) },
-        { headers: getAuthHeaders() }
+      await axios.post(`${Api}/api/settings/price`, { doctorId: 'doctor1', basePrice: parseInt(price) }, { headers: getAuthHeaders() });
+      toast.success('Price updated successfully');
+    } catch (error) {
+      toast.error('Failed to update price');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    navigate('/login');
+  };
+
+  const filteredAppointments = useMemo(() => {
+    let result = [...appointments];
+    if (modeFilter !== 'all') result = result.filter(a => (a.bookingMode || 'offline') === modeFilter);
+    if (statusFilter !== 'all') result = result.filter(a => getDisplayStatus(a.status) === statusFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(a =>
+        `${a.firstName} ${a.lastName}`.toLowerCase().includes(q) ||
+        (a.phone || '').toLowerCase().includes(q) ||
+        (a.email || '').toLowerCase().includes(q) ||
+        (a.serviceType || '').toLowerCase().includes(q)
       );
-      alert('Price updated');
-      fetchSettings();
-    } catch (error) {
-      console.error('Error updating price:', error.response || error.message);
     }
+    if (dateFrom) result = result.filter(a => new Date(a.appointmentDate) >= new Date(dateFrom));
+    if (dateTo) {
+      const to = new Date(dateTo); to.setHours(23, 59, 59, 999);
+      result = result.filter(a => new Date(a.appointmentDate) <= to);
+    }
+    return result;
+  }, [appointments, modeFilter, statusFilter, searchQuery, dateFrom, dateTo]);
+
+  const onlineCount = appointments.filter(a => a.bookingMode === 'online').length;
+  const offlineCount = appointments.filter(a => (a.bookingMode || 'offline') === 'offline').length;
+  const clearFilters = () => { setSearchQuery(''); setStatusFilter('all'); setDateFrom(''); setDateTo(''); };
+  const hasFilters = searchQuery || statusFilter !== 'all' || dateFrom || dateTo;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [modeFilter, statusFilter, searchQuery, dateFrom, dateTo]);
+
+  const totalItems = filteredAppointments.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedAppointments = filteredAppointments.slice(startIndex, startIndex + itemsPerPage);
+
+  const handleNavClick = (view, mode = 'all') => {
+    setActiveView(view);
+    if (view === 'bookings') setModeFilter(mode);
+    setSidebarOpen(false);
   };
 
-  const updateMessage = async () => {
-    if (isMessageEnabled && !message) return alert('Message is required when enabled');
-    try {
-      await axios.post(
-        `${Api}/api/settings/message`,
-        { doctorId: 'doctor1', bookingMessage: message, isMessageEnabled },
-        { headers: getAuthHeaders() }
-      );
-      alert('Message updated');
-      fetchSettings();
-    } catch (error) {
-      console.error('Error updating message:', error.response || error.message);
-    }
-  };
-
-  const generateCoupon = async () => {
-    if (!discount || isNaN(discount) || discount < 0 || discount > 100) return alert('Discount must be between 0 and 100');
-    try {
-      const res = await axios.post(
-        `${Api}/api/coupon`,
-        { doctorId: 'doctor1', discountPercentage: parseInt(discount) },
-        { headers: getAuthHeaders() }
-      );
-      setCoupons([...coupons, { code: res.data.code, discountPercentage: discount }]);
-      setDiscount('');
-      fetchCoupons();
-    } catch (error) {
-      console.error('Error generating coupon:', error.response || error.message);
-    }
-  };
-
-  const deleteCoupon = async (code) => {
-    try {
-      await axios.delete(`${Api}/api/coupon/${code}`, {
-        headers: getAuthHeaders(),
-      });
-      setCoupons(coupons.filter(c => c.code !== code));
-      fetchCoupons();
-    } catch (error) {
-      console.error('Error deleting coupon:', error.response || error.message);
-    }
-  };
-
-  const updateAvailability = (field, value) => {
-    setAvailability(prev => ({
-      ...prev,
-      [field]: field === 'slotDuration' || field === 'breakDuration' || field === 'pricePerSlot'
-        ? (value === '' ? '' : parseInt(value))
-        : value,
-    }));
-  };
-
-  const setAvailabilityHandler = async () => {
-    const { fromDate, toDate, startTime, endTime, slotDuration, breakDuration, pricePerSlot } = availability;
-    if (!fromDate || !toDate || !startTime || !endTime || !slotDuration || !breakDuration || !pricePerSlot) {
-      return alert('All availability fields are required');
-    }
-    if (new Date(toDate) < new Date(fromDate)) {
-      return alert('To date must be on or after from date');
-    }
-    if (new Date(`2000-01-01T${startTime}`) >= new Date(`2000-01-01T${endTime}`)) {
-      return alert('End time must be after start time');
-    }
-    if (isNaN(slotDuration) || slotDuration <= 0 || isNaN(breakDuration) || breakDuration < 0 || isNaN(pricePerSlot) || pricePerSlot <= 0) {
-      return alert('Invalid numeric values in availability');
-    }
-
-    try {
-      await axios.post(
-        `${Api}/api/availability`,
-        {
-          doctorId: 'doctor1',
-          fromDate,
-          toDate,
-          startTime,
-          endTime,
-          slotDuration,
-          breakDuration,
-          pricePerSlot,
-        },
-        { headers: getAuthHeaders() }
-      );
-      alert('Availability set');
-      fetchAvailabilities();
-      setAvailability({
-        fromDate: '',
-        toDate: '',
-        startTime: '',
-        endTime: '',
-        slotDuration: '',
-        breakDuration: '',
-        pricePerSlot: '',
-      });
-    } catch (error) {
-      console.error('Error setting availability:', error.response || error.message);
-      alert('Failed to set availability');
-    }
-  };
-
-  const deleteAvailability = async (id) => {
-    try {
-      await axios.delete(`${Api}/api/availability/${id}`, {
-        headers: getAuthHeaders(),
-      });
-      setSavedAvailabilities(savedAvailabilities.filter(a => a._id !== id));
-    } catch (error) {
-      console.error('Error deleting availability:', error.response || error.message);
-    }
-  };
-
-  const deleteAppointments = async (ids) => {
-    try {
-      await axios.delete(`${Api}/api/appointment`, {
-        headers: getAuthHeaders(),
-        data: { ids },
-      });
-      setAppointments(appointments.filter(a => !ids.includes(a._id)));
-      setSelectedExpired([]);
-    } catch (error) {
-      console.error('Error deleting appointments:', error.response || error.message);
-    }
-  };
-
-  const toggleSelectExpired = (id) => {
-    setSelectedExpired(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-  };
-
-  const selectAllExpired = () => {
-    const expiredIds = appointments.filter(a => a.status === 'expired').map(a => a._id);
-    setSelectedExpired(expiredIds);
-  };
-
-  const filteredAppointments = appointments.filter(a => {
-    if (tab === 'new') return a.rebookingUsed === false;
-    if (tab === 'rebook') return a.status === true && a.rebookingCode;
-    if (tab === 'personal') return a.status === 'pending' && a.couponCode && !a.rebookingCode;
-    if (tab === 'expired') return a.status === 'expired';
-    return true;
-  });
-
-  console.log('Filtered Appointments:', filteredAppointments, 'Current Tab:', tab);
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  const formatTime = (d) => d ? new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
 
   return (
-    <div className="container">
-      <h1>Doctor Panel</h1>
-
-      <div className="section">
-        <h2>Set Price</h2>
-        <p>Current Price: ₹{price || 'Not set'}</p>
-        <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="Enter price" />
-        <button onClick={updatePrice}>Update Price</button>
+    <div className="admin-layout">
+      {/* Mobile Header */}
+      <div className="mobile-header">
+        <button className="hamburger-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>{sidebarOpen ? <FiX /> : <FiMenu />}</button>
+        <h2>Admin Panel</h2>
       </div>
 
-      <div className="section">
-        <h2>Booking Message</h2>
-        <p>Current Message: {message || 'Not set'} {isMessageEnabled ? '(Enabled)' : '(Disabled)'}</p>
-        <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Enter message" />
-        <label>
-          <input type="checkbox" checked={isMessageEnabled} onChange={e => setIsMessageEnabled(e.target.checked)} />
-          Enable
-        </label>
-        <button onClick={updateMessage}>Update</button>
-      </div>
+      <div className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`} onClick={() => setSidebarOpen(false)} />
 
-      <div className="section">
-        <h2>Generate Coupon</h2>
-        <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="Discount %" />
-        <button onClick={generateCoupon}>Generate</button>
-        <h3>Saved Coupons</h3>
-        <ul>
-          {coupons.map(c => (
-            <li key={c.code}>{c.code} ({c.discountPercentage}%) <button onClick={() => deleteCoupon(c.code)}>Delete</button></li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="section">
-        <h2>Set Availability</h2>
-        <div className="availability-row">
-          <div>
-            <label>From Date</label>
-            <input
-              type="date"
-              value={availability.fromDate}
-              onChange={e => updateAvailability('fromDate', e.target.value)}
-            />
-          </div>
-          <div>
-            <label>To Date</label>
-            <input
-              type="date"
-              value={availability.toDate}
-              onChange={e => updateAvailability('toDate', e.target.value)}
-            />
-          </div>
-          <div>
-            <label>Start Time</label>
-            <input
-              type="time"
-              value={availability.startTime}
-              onChange={e => updateAvailability('startTime', e.target.value)}
-            />
-          </div>
-          <div>
-            <label>End Time</label>
-            <input
-              type="time"
-              value={availability.endTime}
-              onChange={e => updateAvailability('endTime', e.target.value)}
-            />
-          </div>
-          <div>
-            <label>Slot Duration (min)</label>
-            <input
-              type="number"
-              value={availability.slotDuration}
-              onChange={e => updateAvailability('slotDuration', e.target.value)}
-              placeholder="Slot (min)"
-            />
-          </div>
-          <div>
-            <label>Break Duration (min)</label>
-            <input
-              type="number"
-              value={availability.breakDuration}
-              onChange={e => updateAvailability('breakDuration', e.target.value)}
-              placeholder="Break (min)"
-            />
-          </div>
-          <div>
-            <label>Price per Slot</label>
-            <input
-              type="number"
-              value={availability.pricePerSlot}
-              onChange={e => updateAvailability('pricePerSlot', e.target.value)}
-              placeholder="Price"
-            />
-          </div>
+      {/* Sidebar */}
+      <aside className={`admin-sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <h2><span className="logo-icon"><FaStethoscope /></span> Admin Panel</h2>
+          <p>Doctor Dashboard</p>
         </div>
-        <button onClick={setAvailabilityHandler}>Set Availability</button>
-        <h3>Saved Availabilities</h3>
-        <ul>
-          {savedAvailabilities.map(a => (
-            <li key={a._id}>
-              {new Date(a.date).toLocaleDateString()} {a.startTime} - {a.endTime} | Slot: {a.slotDuration} min | Break: {a.breakDuration} min | Price: ₹{a.pricePerSlot}
-              <button onClick={() => deleteAvailability(a._id)}>Delete</button>
-            </li>
-          ))}
-        </ul>
-      </div>
 
-      <div className="section">
-        <h2>Appointments</h2>
-        <div className="tabs">
-          <button onClick={() => setTab('new')} className={tab === 'new' ? 'active' : ''}>New</button>
-          <button onClick={() => setTab('rebook')} className={tab === 'rebook' ? 'active' : ''}>Re-Bookings</button>
-          <button onClick={() => setTab('personal')} className={tab === 'personal' ? 'active' : ''}>Personal</button>
-          <button onClick={() => setTab('expired')} className={tab === 'expired' ? 'active' : ''}>Expired</button>
+        <nav className="sidebar-nav">
+          <div className="sidebar-section-label">Appointments</div>
+          <button className={`sidebar-nav-item ${activeView === 'bookings' && modeFilter === 'all' ? 'active' : ''}`} onClick={() => handleNavClick('bookings', 'all')}>
+            <span className="nav-icon"><FiClipboard /></span> All Bookings <span className="nav-badge">{appointments.length}</span>
+          </button>
+          <button className={`sidebar-nav-item ${activeView === 'bookings' && modeFilter === 'online' ? 'active' : ''}`} onClick={() => handleNavClick('bookings', 'online')}>
+            <span className="nav-icon"><FiGlobe /></span> Online <span className="nav-badge">{onlineCount}</span>
+          </button>
+          <button className={`sidebar-nav-item ${activeView === 'bookings' && modeFilter === 'offline' ? 'active' : ''}`} onClick={() => handleNavClick('bookings', 'offline')}>
+            <span className="nav-icon"><FaRegHospital /></span> Offline <span className="nav-badge">{offlineCount}</span>
+          </button>
+
+          <div className="sidebar-section-label">Manage</div>
+          <button className="sidebar-nav-item" onClick={() => navigate('/admin/availabilities')}>
+            <span className="nav-icon"><FiTool /></span> Availability & Services
+          </button>
+          <button className={`sidebar-nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => handleNavClick('settings')}>
+            <span className="nav-icon"><FiSettings /></span> Settings
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <button className="sidebar-nav-item" onClick={handleLogout}>
+            <span className="nav-icon"><FiLogOut /></span> Logout
+          </button>
         </div>
-        {tab === 'expired' && (
-          <div>
-            <label>
-              <input type="checkbox" checked={selectedExpired.length === filteredAppointments.length} onChange={selectAllExpired} />
-              Select All
-            </label>
-            <button onClick={() => deleteAppointments(selectedExpired)} disabled={!selectedExpired.length}>Delete Selected</button>
+      </aside>
+
+      {/* Main Content */}
+      <main className="admin-main">
+        {/* BOOKINGS VIEW */}
+        {activeView === 'bookings' && (
+          <>
+            <div className="main-header">
+              <h1>{modeFilter === 'all' ? 'All Bookings' : modeFilter === 'online' ? 'Online Bookings' : 'Offline Bookings'}</h1>
+              <div className="main-header-right">
+                <div className="header-stat-pill"><span className="stat-dot online"></span> Online: {onlineCount}</div>
+                <div className="header-stat-pill"><span className="stat-dot offline"></span> Offline: {offlineCount}</div>
+              </div>
+            </div>
+
+            {/* Availability Banner */}
+            {savedAvailabilities.length > 0 && (
+              <div className="availability-banner" onClick={() => navigate('/admin/availabilities')}>
+                <div className="avail-banner-left">
+                  <div className="avail-banner-icon"><FiCalendar /></div>
+                  <div className="avail-banner-info">
+                    <h3>{savedAvailabilities.length} Saved Availabilit{savedAvailabilities.length === 1 ? 'y' : 'ies'}</h3>
+                    <p>
+                      {savedAvailabilities[0] && (
+                        <>Latest: {formatDate(savedAvailabilities[0].fromDate)} — {formatDate(savedAvailabilities[0].toDate)} | {savedAvailabilities[0].startTime} - {savedAvailabilities[0].endTime}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <span className="avail-banner-arrow"><FiArrowRight /></span>
+              </div>
+            )}
+
+            {/* Filter Bar */}
+            <div className="filter-bar">
+              <div className="search-input-wrapper">
+                <span className="search-icon"><FiSearch /></span>
+                <input type="text" placeholder="Search by name, phone, email, or service..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+              </div>
+              <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="all">All Status</option>
+                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+              <input type="date" className="filter-date-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From date" />
+              <input type="date" className="filter-date-input" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To date" />
+              {hasFilters && <button className="filter-clear-btn" onClick={clearFilters}><FiX /> Clear</button>}
+            </div>
+
+            {/* Bookings Table */}
+            <div className="bookings-table-card">
+              <div className="bookings-table-header">
+                <h2>Appointments <span className="bookings-count">({filteredAppointments.length} of {appointments.length})</span></h2>
+              </div>
+
+              {loading ? (
+                <div>{[...Array(5)].map((_, i) => <div key={i} className="skeleton-row" />)}</div>
+              ) : filteredAppointments.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon"><FiInbox /></div>
+                  <h3>No appointments found</h3>
+                  <p>{hasFilters ? 'Try adjusting your filters.' : 'New appointments will appear here.'}</p>
+                </div>
+              ) : (
+                <>
+                  {/* Desktop Table */}
+                  <div className="bookings-table-wrapper">
+                    <table className="bookings-table">
+                      <thead>
+                        <tr>
+                          <th>#</th><th>Patient</th><th>Phone</th><th>Date</th><th>Time</th><th>Mode</th><th>Service</th><th>Price</th><th>Status</th><th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedAppointments.map((a, i) => (
+                          <tr key={a._id}>
+                            <td>{startIndex + i + 1}</td>
+                            <td><span className="patient-name">{a.firstName} {a.lastName}</span><span className="patient-email">{a.email}</span></td>
+                            <td>{a.phone || '—'}</td>
+                            <td>{formatDate(a.appointmentDate)}</td>
+                            <td>{a.appointmentTime || '—'}</td>
+                            <td><span className={`mode-badge mode-${a.bookingMode || 'offline'}`}>{(a.bookingMode || 'offline') === 'online' ? <FiGlobe /> : <FaRegHospital />} {a.bookingMode || 'offline'}</span></td>
+                            <td>{a.serviceType || '—'}</td>
+                            <td>{a.price > 0 ? `₹${a.price}` : 'Free'}</td>
+                            <td>
+                              <select className="status-select" value={getDisplayStatus(a.status)} onChange={e => updateStatus(a._id, e.target.value)}>
+                                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                              </select>
+                            </td>
+                            <td>
+                              <button className="action-btn" onClick={() => setPreviewModal(a)} title="Preview"><FiEye /></button>
+                              <button className="action-btn delete" onClick={() => deleteAppointment(a._id)} title="Delete" style={{ marginLeft: 4 }}><FiTrash2 /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards */}
+                  <div className="bookings-mobile-cards">
+                    {paginatedAppointments.map((a, i) => (
+                      <div key={a._id} className="booking-mobile-card" onClick={() => setPreviewModal(a)}>
+                        <div className="bmc-top">
+                          <span className="bmc-num">#{startIndex + i + 1}</span>
+                          <span className={`mode-badge mode-${a.bookingMode || 'offline'}`}>
+                            {(a.bookingMode || 'offline') === 'online' ? <FiGlobe /> : <FaRegHospital />} {a.bookingMode || 'offline'}
+                          </span>
+                        </div>
+                        <div className="bmc-name">{a.firstName} {a.lastName}</div>
+                        <div className="bmc-details">
+                          <span>{formatDate(a.appointmentDate)}</span>
+                          <span>{a.appointmentTime || '—'}</span>
+                          <span>{a.price > 0 ? `₹${a.price}` : 'Free'}</span>
+                        </div>
+                        <div className="bmc-service">{a.serviceType || '—'}</div>
+                        <div className="bmc-bottom">
+                          <select className="status-select" value={getDisplayStatus(a.status)} onChange={e => { e.stopPropagation(); updateStatus(a._id, e.target.value); }} onClick={e => e.stopPropagation()}>
+                            {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                          </select>
+                          <button className="action-btn delete" onClick={e => { e.stopPropagation(); deleteAppointment(a._id); }}><FiTrash2 /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination Control */}
+                  <div className="pagination-wrapper">
+                    <div className="pagination-info">
+                      Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, totalItems)} of {totalItems} entries
+                    </div>
+                    <div className="pagination-controls">
+                      <div className="page-size-selector">
+                        <label>Rows per page:</label>
+                        <select
+                          value={itemsPerPage}
+                          onChange={(e) => {
+                            setItemsPerPage(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                        >
+                          <option value={5}>5</option>
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
+                      <div className="page-buttons">
+                        <button
+                          disabled={currentPage === 1}
+                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        >
+                          Prev
+                        </button>
+                        <span className="page-indicator">{currentPage} / {totalPages}</span>
+                        <button
+                          disabled={currentPage === totalPages}
+                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* SETTINGS VIEW */}
+        {activeView === 'settings' && (
+          <>
+            <div className="main-header"><h1>Settings</h1></div>
+            <div className="settings-card">
+              <h2>Consultation Price</h2>
+              <p className="description">Set the base price for appointment consultations.</p>
+              <div className="settings-field">
+                <label>Base Price (₹)</label>
+                <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="Enter price" />
+              </div>
+              <button className="settings-btn" onClick={updatePrice}>Update Price</button>
+            </div>
+          </>
+        )}
+
+        {/* PREVIEW MODAL */}
+        {previewModal && (
+          <div className="modal-overlay" onClick={() => setPreviewModal(null)}>
+            <div className="modal-card" onClick={e => e.stopPropagation()}>
+              <div className="modal-card-header">
+                <h3>Appointment Details</h3>
+                <button className="modal-close-btn" onClick={() => setPreviewModal(null)}><FiX /></button>
+              </div>
+              <div className="modal-card-body">
+                <div className="modal-detail-grid">
+                  {[
+                    ['First Name', previewModal.firstName],
+                    ['Last Name', previewModal.lastName],
+                    ['Phone', previewModal.phone],
+                    ['Email', previewModal.email],
+                    ['Date', formatDate(previewModal.appointmentDate)],
+                    ['Time', previewModal.appointmentTime],
+                  ].map(([label, val]) => (
+                    <div key={label} className="modal-detail-item">
+                      <div className="modal-detail-label">{label}</div>
+                      <div className="modal-detail-value">{val || '—'}</div>
+                    </div>
+                  ))}
+                  <div className="modal-detail-item">
+                    <div className="modal-detail-label">Booking Mode</div>
+                    <div className="modal-detail-value">
+                      <span className={`mode-badge mode-${previewModal.bookingMode || 'offline'}`}>
+                        {(previewModal.bookingMode || 'offline') === 'online' ? <FiGlobe /> : <FaRegHospital />} {previewModal.bookingMode || 'offline'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="modal-detail-item">
+                    <div className="modal-detail-label">Service Type</div>
+                    <div className="modal-detail-value">{previewModal.serviceType || '—'}</div>
+                  </div>
+                  <div className="modal-detail-item">
+                    <div className="modal-detail-label">Price</div>
+                    <div className="modal-detail-value">{previewModal.price > 0 ? `₹${previewModal.price}` : 'Free'}</div>
+                  </div>
+                  <div className="modal-detail-item">
+                    <div className="modal-detail-label">Status</div>
+                    <div className="modal-detail-value">
+                      <span className={`status-badge status-${getDisplayStatus(previewModal.status)}`}>
+                        <span className="status-dot"></span> {getStatusLabel(previewModal.status)}
+                      </span>
+                    </div>
+                  </div>
+                  {previewModal.meetingType && <div className="modal-detail-item"><div className="modal-detail-label">Meeting Type</div><div className="modal-detail-value">{previewModal.meetingType}</div></div>}
+                  {previewModal.meetingContact && <div className="modal-detail-item"><div className="modal-detail-label">Meeting Contact</div><div className="modal-detail-value">{previewModal.meetingContact}</div></div>}
+                  <div className="modal-detail-item full-width">
+                    <div className="modal-detail-label">Booked On</div>
+                    <div className="modal-detail-value">{formatDate(previewModal.createdAt)} {formatTime(previewModal.createdAt)}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-card-footer">
+                <button className="modal-btn secondary" onClick={() => setPreviewModal(null)}>Close</button>
+                <button className="modal-btn primary" onClick={() => deleteAppointment(previewModal._id)}>Delete Booking</button>
+              </div>
+            </div>
           </div>
         )}
-        <ul>
-          {filteredAppointments.length > 0 ? (
-            filteredAppointments.map(a => (
-              <li key={a._id} onClick={() => setModal(a)}>
-                {a.firstName} {a.lastName} - {new Date(a.appointmentDate).toLocaleDateString()} {a.appointmentTime} - ₹{a.price}
-                {a.rebookingCode && ` | Re-booking Code: ${a.rebookingCode}`}
-                {tab === 'expired' && (
-                  <input
-                    type="checkbox"
-                    checked={selectedExpired.includes(a._id)}
-                    onChange={() => toggleSelectExpired(a._id)}
-                    onClick={e => e.stopPropagation()}
-                  />
-                )}
-              </li>
-            ))
-          ) : (
-            <li>No appointments found for this tab.</li>
-          )}
-        </ul>
-      </div>
-
-      {modal && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Appointment Details</h3>
-            <p><strong>First Name:</strong> {modal.firstName}</p>
-            <p><strong>Last Name:</strong> {modal.lastName}</p>
-            <p><strong>Phone:</strong> {modal.phone}</p>
-            <p><strong>Email:</strong> {modal.email}</p>
-            <p><strong>Date:</strong> {new Date(modal.appointmentDate).toLocaleDateString()}</p>
-            <p><strong>Time:</strong> {modal.appointmentTime}</p>
-            <p><strong>Price:</strong> ₹{modal.price}</p>
-            <p><strong>Meeting Link:</strong> <a href={modal.meetingLink} target="_blank" rel="noopener noreferrer">{modal.meetingLink}</a></p>
-            {modal.couponCode && <p><strong>Coupon Code:</strong> {modal.couponCode}</p>}
-            {modal.rebookingCode && (
-              <>
-                <p><strong>Re-booking Code:</strong> {modal.rebookingCode}</p>
-                <p><strong>Valid From:</strong> {new Date(modal.rebookingValidFrom).toLocaleString()}</p>
-                <p><strong>Valid Until:</strong> {new Date(modal.rebookingValidUntil).toLocaleString()}</p>
-              </>
-            )}
-            <button onClick={() => setModal(null)}>Close</button>
-          </div>
-        </div>
-      )}
+      </main>
     </div>
   );
 }
 
 export default DoctorPanel;
-
-
-// FIXME: with authentication
-
-// import React, { useState, useEffect } from 'react';
-// import axios from 'axios';
-// import './DoctorPanel.css';
-
-// function DoctorPanel() {
-//   const [price, setPrice] = useState('');
-//   const [message, setMessage] = useState('');
-//   const [isMessageEnabled, setIsMessageEnabled] = useState(false);
-//   const [discount, setDiscount] = useState('');
-//   const [coupons, setCoupons] = useState([]);
-//   // Updated availability state to handle a single range
-//   const [availability, setAvailability] = useState({
-//     fromDate: '',
-//     toDate: '',
-//     startTime: '',
-//     endTime: '',
-//     slotDuration: '',
-//     breakDuration: '',
-//     pricePerSlot: '',
-//   });
-//   const [savedAvailabilities, setSavedAvailabilities] = useState([]);
-//   const [appointments, setAppointments] = useState([]);
-//   const [tab, setTab] = useState('new');
-//   const [selectedExpired, setSelectedExpired] = useState([]);
-//   const [modal, setModal] = useState(null);
-
-//   useEffect(() => {
-//     fetchSettings();
-//     fetchCoupons();
-//     fetchAvailabilities();
-//     fetchAppointments();
-//   }, []);
-
-//   const fetchSettings = async () => {
-//     try {
-//       const res = await axios.get('http://localhost:5000/api/settings');
-//       setPrice(res.data.basePrice || '');
-//       setMessage(res.data.bookingMessage || '');
-//       setIsMessageEnabled(res.data.isMessageEnabled || false);
-//     } catch (error) {
-//       console.error('Error fetching settings:', error.response || error.message);
-//     }
-//   };
-
-//   const fetchAppointments = async () => {
-//     try {
-//       const res = await axios.get('http://localhost:5000/api/appointments');
-//       console.log('Appointments fetched:', res.data);
-//       setAppointments(res.data);
-//     } catch (error) {
-//       console.error('Error fetching appointments:', error.response || error.message);
-//     }
-//   };
-
-//   const fetchCoupons = async () => {
-//     try {
-//       const res = await axios.get('http://localhost:5000/api/coupons');
-//       setCoupons(res.data);
-//     } catch (error) {
-//       console.error('Error fetching coupons:', error.response || error.message);
-//     }
-//   };
-
-//   const fetchAvailabilities = async () => {
-//     try {
-//       const res = await axios.get('http://localhost:5000/api/availability');
-//       setSavedAvailabilities(res.data);
-//     } catch (error) {
-//       console.error('Error fetching availabilities:', error.response || error.message);
-//     }
-//   };
-
-//   const updatePrice = async () => {
-//     if (!price || isNaN(price) || price <= 0) return alert('Price must be a positive number');
-//     try {
-//       await axios.post('http://localhost:5000/api/settings/price', { doctorId: 'doctor1', basePrice: parseInt(price) });
-//       alert('Price updated');
-//       fetchSettings();
-//     } catch (error) {
-//       console.error('Error updating price:', error.response || error.message);
-//     }
-//   };
-
-//   const updateMessage = async () => {
-//     if (isMessageEnabled && !message) return alert('Message is required when enabled');
-//     try {
-//       await axios.post('http://localhost:5000/api/settings/message', { doctorId: 'doctor1', bookingMessage: message, isMessageEnabled });
-//       alert('Message updated');
-//       fetchSettings();
-//     } catch (error) {
-//       console.error('Error updating message:', error.response || error.message);
-//     }
-//   };
-
-//   const generateCoupon = async () => {
-//     if (!discount || isNaN(discount) || discount < 0 || discount > 100) return alert('Discount must be between 0 and 100');
-//     try {
-//       const res = await axios.post('http://localhost:5000/api/coupon', { doctorId: 'doctor1', discountPercentage: parseInt(discount) });
-//       setCoupons([...coupons, { code: res.data.code, discountPercentage: discount }]);
-//       setDiscount('');
-//       fetchCoupons();
-//     } catch (error) {
-//       console.error('Error generating coupon:', error.response || error.message);
-//     }
-//   };
-
-//   const deleteCoupon = async (code) => {
-//     try {
-//       await axios.delete(`http://localhost:5000/api/coupon/${code}`);
-//       setCoupons(coupons.filter(c => c.code !== code));
-//       fetchCoupons();
-//     } catch (error) {
-//       console.error('Error deleting coupon:', error.response || error.message);
-//     }
-//   };
-
-//   const updateAvailability = (field, value) => {
-//     setAvailability(prev => ({
-//       ...prev,
-//       [field]: field === 'slotDuration' || field === 'breakDuration' || field === 'pricePerSlot'
-//         ? (value === '' ? '' : parseInt(value))
-//         : value,
-//     }));
-//   };
-
-//   const setAvailabilityHandler = async () => {
-//     const { fromDate, toDate, startTime, endTime, slotDuration, breakDuration, pricePerSlot } = availability;
-//     if (!fromDate || !toDate || !startTime || !endTime || !slotDuration || !breakDuration || !pricePerSlot) {
-//       return alert('All availability fields are required');
-//     }
-//     if (new Date(toDate) < new Date(fromDate)) {
-//       return alert('To date must be on or after from date');
-//     }
-//     if (new Date(`2000-01-01T${startTime}`) >= new Date(`2000-01-01T${endTime}`)) {
-//       return alert('End time must be after start time');
-//     }
-//     if (isNaN(slotDuration) || slotDuration <= 0 || isNaN(breakDuration) || breakDuration < 0 || isNaN(pricePerSlot) || pricePerSlot <= 0) {
-//       return alert('Invalid numeric values in availability');
-//     }
-
-//     try {
-//       await axios.post('http://localhost:5000/api/availability', {
-//         doctorId: 'doctor1',
-//         fromDate,
-//         toDate,
-//         startTime,
-//         endTime,
-//         slotDuration,
-//         breakDuration,
-//         pricePerSlot,
-//       });
-//       alert('Availability set');
-//       fetchAvailabilities();
-//       // Reset form
-//       setAvailability({
-//         fromDate: '',
-//         toDate: '',
-//         startTime: '',
-//         endTime: '',
-//         slotDuration: '',
-//         breakDuration: '',
-//         pricePerSlot: '',
-//       });
-//     } catch (error) {
-//       console.error('Error setting availability:', error.response || error.message);
-//       alert('Failed to set availability');
-//     }
-//   };
-
-//   const deleteAvailability = async (id) => {
-//     try {
-//       await axios.delete(`http://localhost:5000/api/availability/${id}`);
-//       setSavedAvailabilities(savedAvailabilities.filter(a => a._id !== id));
-//     } catch (error) {
-//       console.error('Error deleting availability:', error.response || error.message);
-//     }
-//   };
-
-//   const deleteAppointments = async (ids) => {
-//     try {
-//       await axios.delete('http://localhost:5000/api/appointment', { data: { ids } });
-//       setAppointments(appointments.filter(a => !ids.includes(a._id)));
-//       setSelectedExpired([]);
-//     } catch (error) {
-//       console.error('Error deleting appointments:', error.response || error.message);
-//     }
-//   };
-
-//   const toggleSelectExpired = (id) => {
-//     setSelectedExpired(prev =>
-//       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-//     );
-//   };
-
-//   const selectAllExpired = () => {
-//     const expiredIds = appointments.filter(a => a.status === 'expired').map(a => a._id);
-//     setSelectedExpired(expiredIds);
-//   };
-
-//   const filteredAppointments = appointments.filter(a => {
-//     if (tab === 'new') return a.rebookingUsed === false;
-//     if (tab === 'rebook') return a.status === true && a.rebookingCode;
-//     if (tab === 'personal') return a.status === 'pending' && a.couponCode && !a.rebookingCode;
-//     if (tab === 'expired') return a.status === 'expired';
-//     return true;
-//   });
-
-//   console.log('Filtered Appointments:', filteredAppointments, 'Current Tab:', tab);
-
-//   return (
-//     <div className="container">
-//       <h1>Doctor Panel</h1>
-
-//       <div className="section">
-//         <h2>Set Price</h2>
-//         <p>Current Price: ₹{price || 'Not set'}</p>
-//         <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="Enter price" />
-//         <button onClick={updatePrice}>Update Price</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Booking Message</h2>
-//         <p>Current Message: {message || 'Not set'} {isMessageEnabled ? '(Enabled)' : '(Disabled)'}</p>
-//         <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Enter message" />
-//         <label>
-//           <input type="checkbox" checked={isMessageEnabled} onChange={e => setIsMessageEnabled(e.target.checked)} />
-//           Enable
-//         </label>
-//         <button onClick={updateMessage}>Update</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Generate Coupon</h2>
-//         <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="Discount %" />
-//         <button onClick={generateCoupon}>Generate</button>
-//         <h3>Saved Coupons</h3>
-//         <ul>
-//           {coupons.map(c => (
-//             <li key={c.code}>{c.code} ({c.discountPercentage}%) <button onClick={() => deleteCoupon(c.code)}>Delete</button></li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div className="section">
-//         <h2>Set Availability</h2>
-//         <div className="availability-row">
-//           <div>
-//             <label>From Date</label>
-//             <input
-//               type="date"
-//               value={availability.fromDate}
-//               onChange={e => updateAvailability('fromDate', e.target.value)}
-//             />
-//           </div>
-//           <div>
-//             <label>To Date</label>
-//             <input
-//               type="date"
-//               value={availability.toDate}
-//               onChange={e => updateAvailability('toDate', e.target.value)}
-//             />
-//           </div>
-//           <div>
-//             <label>Start Time</label>
-//             <input
-//               type="time"
-//               value={availability.startTime}
-//               onChange={e => updateAvailability('startTime', e.target.value)}
-//             />
-//           </div>
-//           <div>
-//             <label>End Time</label>
-//             <input
-//               type="time"
-//               value={availability.endTime}
-//               onChange={e => updateAvailability('endTime', e.target.value)}
-//             />
-//           </div>
-//           <div>
-//             <label>Slot Duration (min)</label>
-//             <input
-//               type="number"
-//               value={availability.slotDuration}
-//               onChange={e => updateAvailability('slotDuration', e.target.value)}
-//               placeholder="Slot (min)"
-//             />
-//           </div>
-//           <div>
-//             <label>Break Duration (min)</label>
-//             <input
-//               type="number"
-//               value={availability.breakDuration}
-//               onChange={e => updateAvailability('breakDuration', e.target.value)}
-//               placeholder="Break (min)"
-//             />
-//           </div>
-//           <div>
-//             <label>Price per Slot</label>
-//             <input
-//               type="number"
-//               value={availability.pricePerSlot}
-//               onChange={e => updateAvailability('pricePerSlot', e.target.value)}
-//               placeholder="Price"
-//             />
-//           </div>
-//         </div>
-//         <button onClick={setAvailabilityHandler}>Set Availability</button>
-//         <h3>Saved Availabilities</h3>
-//         <ul>
-//           {savedAvailabilities.map(a => (
-//             <li key={a._id}>
-//               {new Date(a.date).toLocaleDateString()} {a.startTime} - {a.endTime} | Slot: {a.slotDuration} min | Break: {a.breakDuration} min | Price: ₹{a.pricePerSlot}
-//               <button onClick={() => deleteAvailability(a._id)}>Delete</button>
-//             </li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div className="section">
-//         <h2>Appointments</h2>
-//         <div className="tabs">
-//           <button onClick={() => setTab('new')} className={tab === 'new' ? 'active' : ''}>New</button>
-//           <button onClick={() => setTab('rebook')} className={tab === 'rebook' ? 'active' : ''}>Re-Bookings</button>
-//           <button onClick={() => setTab('personal')} className={tab === 'personal' ? 'active' : ''}>Personal</button>
-//           <button onClick={() => setTab('expired')} className={tab === 'expired' ? 'active' : ''}>Expired</button>
-//         </div>
-//         {tab === 'expired' && (
-//           <div>
-//             <label>
-//               <input type="checkbox" checked={selectedExpired.length === filteredAppointments.length} onChange={selectAllExpired} />
-//               Select All
-//             </label>
-//             <button onClick={() => deleteAppointments(selectedExpired)} disabled={!selectedExpired.length}>Delete Selected</button>
-//           </div>
-//         )}
-//         <ul>
-//           {filteredAppointments.length > 0 ? (
-//             filteredAppointments.map(a => (
-//               <li key={a._id} onClick={() => setModal(a)}>
-//                 {a.firstName} {a.lastName} - {new Date(a.appointmentDate).toLocaleDateString()} {a.appointmentTime} - ₹{a.price}
-//                 {a.rebookingCode && ` | Re-booking Code: ${a.rebookingCode}`}
-//                 {tab === 'expired' && (
-//                   <input
-//                     type="checkbox"
-//                     checked={selectedExpired.includes(a._id)}
-//                     onChange={() => toggleSelectExpired(a._id)}
-//                     onClick={e => e.stopPropagation()}
-//                   />
-//                 )}
-//               </li>
-//             ))
-//           ) : (
-//             <li>No appointments found for this tab.</li>
-//           )}
-//         </ul>
-//       </div>
-
-//       {modal && (
-//         <div className="modal">
-//           <div className="modal-content">
-//             <h3>Appointment Details</h3>
-//             <p><strong>First Name:</strong> {modal.firstName}</p>
-//             <p><strong>Last Name:</strong> {modal.lastName}</p>
-//             <p><strong>Phone:</strong> {modal.phone}</p>
-//             <p><strong>Email:</strong> {modal.email}</p>
-//             <p><strong>Date:</strong> {new Date(modal.appointmentDate).toLocaleDateString()}</p>
-//             <p><strong>Time:</strong> {modal.appointmentTime}</p>
-//             <p><strong>Price:</strong> ₹{modal.price}</p>
-//             <p><strong>Meeting Link:</strong> <a href={modal.meetingLink} target="_blank" rel="noopener noreferrer">{modal.meetingLink}</a></p>
-//             {modal.couponCode && <p><strong>Coupon Code:</strong> {modal.couponCode}</p>}
-//             {modal.rebookingCode && (
-//               <>
-//                 <p><strong>Re-booking Code:</strong> {modal.rebookingCode}</p>
-//                 <p><strong>Valid From:</strong> {new Date(modal.rebookingValidFrom).toLocaleString()}</p>
-//                 <p><strong>Valid Until:</strong> {new Date(modal.rebookingValidUntil).toLocaleString()}</p>
-//               </>
-//             )}
-//             <button onClick={() => setModal(null)}>Close</button>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-// export default DoctorPanel;
-
-
-// FIXME: set availability change to from date and to date
-
-// import React, { useState, useEffect } from 'react';
-// import axios from 'axios';
-// import './DoctorPanel.css';
-
-// function DoctorPanel() {
-//   const [price, setPrice] = useState('');
-//   const [message, setMessage] = useState('');
-//   const [isMessageEnabled, setIsMessageEnabled] = useState(false);
-//   const [discount, setDiscount] = useState('');
-//   const [coupons, setCoupons] = useState([]);
-//   const [availabilities, setAvailabilities] = useState([{ date: '', startTime: '', endTime: '', slotDuration: '', breakDuration: '', pricePerSlot: '' }]);
-//   const [savedAvailabilities, setSavedAvailabilities] = useState([]);
-//   const [appointments, setAppointments] = useState([]);
-//   const [tab, setTab] = useState('new');
-//   const [selectedExpired, setSelectedExpired] = useState([]);
-//   const [modal, setModal] = useState(null);
-
-//   useEffect(() => {
-//     fetchSettings();
-//     fetchCoupons();
-//     fetchAvailabilities();
-//     fetchAppointments();
-//   }, []);
-
-//   const fetchSettings = async () => {
-//     const res = await axios.get('http://localhost:5000/api/settings');
-//     setPrice(res.data.basePrice || '');
-//     setMessage(res.data.bookingMessage || '');
-//     setIsMessageEnabled(res.data.isMessageEnabled || false);
-//   };
-
-//   const fetchAppointments = async () => {
-//     const res = await axios.get('http://localhost:5000/api/appointments');
-//     console.log('Appointments fetched:', res.data);
-//     setAppointments(res.data);
-//   };
-
-//   const fetchCoupons = async () => {
-//     const res = await axios.get('http://localhost:5000/api/coupons');
-//     setCoupons(res.data);
-//   };
-
-//   const fetchAvailabilities = async () => {
-//     const res = await axios.get('http://localhost:5000/api/availability');
-//     setSavedAvailabilities(res.data);
-//   };
-
-//   const updatePrice = async () => {
-//     if (!price || isNaN(price) || price <= 0) return alert('Price must be a positive number');
-//     await axios.post('http://localhost:5000/api/settings/price', { doctorId: 'doctor1', basePrice: parseInt(price) });
-//     alert('Price updated');
-//     fetchSettings();
-//   };
-
-//   const updateMessage = async () => {
-//     if (isMessageEnabled && !message) return alert('Message is required when enabled');
-//     await axios.post('http://localhost:5000/api/settings/message', { doctorId: 'doctor1', bookingMessage: message, isMessageEnabled });
-//     alert('Message updated');
-//     fetchSettings();
-//   };
-
-//   const generateCoupon = async () => {
-//     if (!discount || isNaN(discount) || discount < 0 || discount > 100) return alert('Discount must be between 0 and 100');
-//     const res = await axios.post('http://localhost:5000/api/coupon', { doctorId: 'doctor1', discountPercentage: parseInt(discount) });
-//     setCoupons([...coupons, { code: res.data.code, discountPercentage: discount }]);
-//     setDiscount('');
-//     fetchCoupons();
-//   };
-
-//   const deleteCoupon = async (code) => {
-//     await axios.delete(`http://localhost:5000/api/coupon/${code}`);
-//     setCoupons(coupons.filter(c => c.code !== code));
-//     fetchCoupons();
-//   };
-
-//   const addAvailability = () => {
-//     setAvailabilities([...availabilities, { date: '', startTime: '', endTime: '', slotDuration: '', breakDuration: '', pricePerSlot: '' }]);
-//   };
-
-//   const removeAvailability = (index) => {
-//     if (availabilities.length === 1) return;
-//     setAvailabilities(availabilities.filter((_, i) => i !== index));
-//   };
-
-//   const updateAvailability = (index, field, value) => {
-//     const newAvailabilities = [...availabilities];
-//     if (['slotDuration', 'breakDuration', 'pricePerSlot'].includes(field)) {
-//       newAvailabilities[index][field] = value === '' ? '' : parseInt(value);
-//     } else {
-//       newAvailabilities[index][field] = value;
-//     }
-//     setAvailabilities(newAvailabilities);
-//   };
-
-//   const setAvailabilityHandler = async () => {
-//     for (const a of availabilities) {
-//       if (!a.date || !a.startTime || !a.endTime || !a.slotDuration || !a.breakDuration || !a.pricePerSlot) {
-//         return alert('All availability fields are required');
-//       }
-//       if (isNaN(a.slotDuration) || a.slotDuration <= 0 || isNaN(a.breakDuration) || a.breakDuration < 0 || isNaN(a.pricePerSlot) || a.pricePerSlot <= 0) {
-//         return alert('Invalid numeric values in availability');
-//       }
-//     }
-//     const payload = availabilities.map(a => ({ ...a, doctorId: 'doctor1' }));
-//     await axios.post('http://localhost:5000/api/availability', payload);
-//     alert('Availability set');
-//     fetchAvailabilities();
-//   };
-
-//   const deleteAvailability = async (id) => {
-//     await axios.delete(`http://localhost:5000/api/availability/${id}`);
-//     setSavedAvailabilities(savedAvailabilities.filter(a => a._id !== id));
-//   };
-
-//   const deleteAppointments = async (ids) => {
-//     await axios.delete('http://localhost:5000/api/appointment', { data: { ids } });
-//     setAppointments(appointments.filter(a => !ids.includes(a._id)));
-//     setSelectedExpired([]);
-//   };
-
-//   const toggleSelectExpired = (id) => {
-//     setSelectedExpired(prev => 
-//       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-//     );
-//   };
-
-//   const selectAllExpired = () => {
-//     const expiredIds = appointments.filter(a => a.status === 'expired').map(a => a._id);
-//     setSelectedExpired(expiredIds);
-//   };
-
-//   const filteredAppointments = appointments.filter(a => {
-//     if (tab === 'new') return a.rebookingUsed === false // && !a.couponCode && !a.rebookingCode; // New bookings: no coupon, no rebooking
-//     if (tab === 'rebook') return a.status === true && a.rebookingCode; // Re-bookings: has rebookingCode
-//     if (tab === 'personal') return a.status === 'pending' && a.couponCode && !a.rebookingCode; // Personal: has couponCode, no rebooking
-//     if (tab === 'expired') return a.status === 'expired'; // Expired: status is expired
-//     return true;
-//   });
-
-//   console.log('Filtered Appointments:', filteredAppointments, 'Current Tab:', tab);
-
-//   return (
-//     <div className="container">
-//       <h1>Doctor Panel</h1>
-
-//       <div className="section">
-//         <h2>Set Price</h2>
-//         <p>Current Price: ₹{price || 'Not set'}</p>
-//         <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="Enter price" />
-//         <button onClick={updatePrice}>Update Price</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Booking Message</h2>
-//         <p>Current Message: {message || 'Not set'} {isMessageEnabled ? '(Enabled)' : '(Disabled)'}</p>
-//         <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Enter message" />
-//         <label>
-//           <input type="checkbox" checked={isMessageEnabled} onChange={e => setIsMessageEnabled(e.target.checked)} />
-//           Enable
-//         </label>
-//         <button onClick={updateMessage}>Update</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Generate Coupon</h2>
-//         <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="Discount %" />
-//         <button onClick={generateCoupon}>Generate</button>
-//         <h3>Saved Coupons</h3>
-//         <ul>
-//           {coupons.map(c => (
-//             <li key={c.code}>{c.code} ({c.discountPercentage}%) <button onClick={() => deleteCoupon(c.code)}>Delete</button></li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div className="section">
-//         <h2>Set Availability</h2>
-//         {availabilities.map((a, index) => (
-//           <div key={index} className="availability-row">
-//             <input type="date" value={a.date} onChange={e => updateAvailability(index, 'date', e.target.value)} />
-//             <input type="time" value={a.startTime} onChange={e => updateAvailability(index, 'startTime', e.target.value)} />
-//             <input type="time" value={a.endTime} onChange={e => updateAvailability(index, 'endTime', e.target.value)} />
-//             <input type="number" value={a.slotDuration} onChange={e => updateAvailability(index, 'slotDuration', e.target.value)} placeholder="Slot (min)" />
-//             <input type="number" value={a.breakDuration} onChange={e => updateAvailability(index, 'breakDuration', e.target.value)} placeholder="Break (min)" />
-//             <input type="number" value={a.pricePerSlot} onChange={e => updateAvailability(index, 'pricePerSlot', e.target.value)} placeholder="Price" />
-//             {availabilities.length > 1 && <button onClick={() => removeAvailability(index)}>Remove</button>}
-//           </div>
-//         ))}
-//         <button onClick={addAvailability}>Add Another Day</button>
-//         <button onClick={setAvailabilityHandler}>Set Availability</button>
-//         <h3>Saved Availabilities</h3>
-//         <ul>
-//           {savedAvailabilities.map(a => (
-//             <li key={a._id}>
-//               {new Date(a.date).toLocaleDateString()} {a.startTime} - {a.endTime} | Slot: {a.slotDuration} min | Break: {a.breakDuration} min | Price: ₹{a.pricePerSlot}
-//               <button onClick={() => deleteAvailability(a._id)}>Delete</button>
-//             </li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div className="section">
-//         <h2>Appointments</h2>
-//         <div className="tabs">
-//           <button onClick={() => setTab('new')} className={tab === 'new' ? 'active' : ''}>New</button>
-//           <button onClick={() => setTab('rebook')} className={tab === 'rebook' ? 'active' : ''}>Re-Bookings</button>
-//           <button onClick={() => setTab('personal')} className={tab === 'personal' ? 'active' : ''}>Personal</button>
-//           <button onClick={() => setTab('expired')} className={tab === 'expired' ? 'active' : ''}>Expired</button>
-//         </div>
-//         {tab === 'expired' && (
-//           <div>
-//             <label>
-//               <input type="checkbox" checked={selectedExpired.length === filteredAppointments.length} onChange={selectAllExpired} />
-//               Select All
-//             </label>
-//             <button onClick={() => deleteAppointments(selectedExpired)} disabled={!selectedExpired.length}>Delete Selected</button>
-//           </div>
-//         )}
-//         <ul>
-//           {filteredAppointments.length > 0 ? (
-//             filteredAppointments.map(a => (
-//               <li key={a._id} onClick={() => setModal(a)}>
-//                 {a.firstName} {a.lastName} - {new Date(a.appointmentDate).toLocaleDateString()} {a.appointmentTime} - ₹{a.price}
-//                 {a.rebookingCode && ` | Re-booking Code: ${a.rebookingCode}`}
-//                 {tab === 'expired' && (
-//                   <input 
-//                     type="checkbox" 
-//                     checked={selectedExpired.includes(a._id)} 
-//                     onChange={() => toggleSelectExpired(a._id)} 
-//                     onClick={e => e.stopPropagation()} 
-//                   />
-//                 )}
-//               </li>
-//             ))
-//           ) : (
-//             <li>No appointments found for this tab.</li>
-//           )}
-//         </ul>
-//       </div>
-
-//       {modal && (
-//         <div className="modal">
-//           <div className="modal-content">
-//             <h3>Appointment Details</h3>
-//             <p><strong>First Name:</strong> {modal.firstName}</p>
-//             <p><strong>Last Name:</strong> {modal.lastName}</p>
-//             <p><strong>Phone:</strong> {modal.phone}</p>
-//             <p><strong>Email:</strong> {modal.email}</p>
-//             <p><strong>Date:</strong> {new Date(modal.appointmentDate).toLocaleDateString()}</p>
-//             <p><strong>Time:</strong> {modal.appointmentTime}</p>
-//             <p><strong>Price:</strong> ₹{modal.price}</p>
-//             <p><strong>Meeting Link:</strong> <a href={modal.meetingLink} target="_blank" rel="noopener noreferrer">{modal.meetingLink}</a></p>
-//             {modal.couponCode && <p><strong>Coupon Code:</strong> {modal.couponCode}</p>}
-//             {modal.rebookingCode && (
-//               <>
-//                 <p><strong>Re-booking Code:</strong> {modal.rebookingCode}</p>
-//                 <p><strong>Valid From:</strong> {new Date(modal.rebookingValidFrom).toLocaleString()}</p>
-//                 <p><strong>Valid Until:</strong> {new Date(modal.rebookingValidUntil).toLocaleString()}</p>
-//               </>
-//             )}
-//             <button onClick={() => setModal(null)}>Close</button>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-// export default DoctorPanel;
-
-
-// TODO: fix ui for delete for options for each steps
-
-// import React, { useState, useEffect } from 'react';
-// import axios from 'axios';
-// import './DoctorPanel.css';
-
-// function DoctorPanel() {
-//   const [price, setPrice] = useState('');
-//   const [message, setMessage] = useState('');
-//   const [isMessageEnabled, setIsMessageEnabled] = useState(false);
-//   const [discount, setDiscount] = useState('');
-//   const [coupons, setCoupons] = useState([]);
-//   const [availabilities, setAvailabilities] = useState([{ date: '', startTime: '', endTime: '', slotDuration: '', breakDuration: '', pricePerSlot: '' }]);
-//   const [appointments, setAppointments] = useState([]);
-//   const [tab, setTab] = useState('new');
-//   const [selectedExpired, setSelectedExpired] = useState([]);
-//   const [modal, setModal] = useState(null);
-
-//   useEffect(() => {
-//     fetchAppointments();
-//     fetchCoupons();
-//   }, []);
-
-//   const fetchAppointments = async () => {
-//     const res = await axios.get('http://localhost:5000/api/appointments');
-//     setAppointments(res.data);
-//   };
-
-//   const fetchCoupons = async () => {
-//     const res = await axios.get('http://localhost:5000/api/coupons');
-//     setCoupons(res.data);
-//   };
-
-//   const updatePrice = async () => {
-//     if (!price || isNaN(price) || price <= 0) return alert('Price must be a positive number');
-//     await axios.post('http://localhost:5000/api/settings/price', { doctorId: 'doctor1', basePrice: parseInt(price) });
-//     alert('Price updated');
-//   };
-
-//   const updateMessage = async () => {
-//     if (isMessageEnabled && !message) return alert('Message is required when enabled');
-//     await axios.post('http://localhost:5000/api/settings/message', { doctorId: 'doctor1', bookingMessage: message, isMessageEnabled });
-//     alert('Message updated');
-//   };
-
-//   const generateCoupon = async () => {
-//     if (!discount || isNaN(discount) || discount < 0 || discount > 100) return alert('Discount must be between 0 and 100');
-//     const res = await axios.post('http://localhost:5000/api/coupon', { doctorId: 'doctor1', discountPercentage: parseInt(discount) });
-//     setCoupons([...coupons, { code: res.data.code, discountPercentage: discount }]);
-//     setDiscount('');
-//   };
-
-//   const deleteCoupon = async (code) => {
-//     await axios.delete(`http://localhost:5000/api/coupon/${code}`);
-//     setCoupons(coupons.filter(c => c.code !== code));
-//   };
-
-//   const addAvailability = () => {
-//     setAvailabilities([...availabilities, { date: '', startTime: '', endTime: '', slotDuration: '', breakDuration: '', pricePerSlot: '' }]);
-//   };
-
-//   const removeAvailability = (index) => {
-//     if (availabilities.length === 1) return;
-//     setAvailabilities(availabilities.filter((_, i) => i !== index));
-//   };
-
-//   const updateAvailability = (index, field, value) => {
-//     const newAvailabilities = [...availabilities];
-//     if (['slotDuration', 'breakDuration', 'pricePerSlot'].includes(field)) {
-//       newAvailabilities[index][field] = value === '' ? '' : parseInt(value);
-//     } else {
-//       newAvailabilities[index][field] = value;
-//     }
-//     setAvailabilities(newAvailabilities);
-//   };
-
-//   const setAvailabilityHandler = async () => {
-//     for (const a of availabilities) {
-//       if (!a.date || !a.startTime || !a.endTime || !a.slotDuration || !a.breakDuration || !a.pricePerSlot) {
-//         return alert('All availability fields are required');
-//       }
-//       if (isNaN(a.slotDuration) || a.slotDuration <= 0 || isNaN(a.breakDuration) || a.breakDuration < 0 || isNaN(a.pricePerSlot) || a.pricePerSlot <= 0) {
-//         return alert('Invalid numeric values in availability');
-//       }
-//     }
-//     const payload = availabilities.map(a => ({ ...a, doctorId: 'doctor1' })); // Add doctorId to each object
-//     console.log('Sending availability data:', payload);
-//     try {
-//       await axios.post('http://localhost:5000/api/availability', payload);
-//       alert('Availability set');
-//     } catch (err) {
-//       console.error('Error setting availability:', err.response?.data);
-//       alert('Failed to set availability: ' + (err.response?.data?.error || 'Unknown error'));
-//     }
-//   };
-
-//   const deleteAppointments = async (ids) => {
-//     await axios.delete('http://localhost:5000/api/appointment', { data: { ids } });
-//     setAppointments(appointments.filter(a => !ids.includes(a._id)));
-//     setSelectedExpired([]);
-//   };
-
-//   const toggleSelectExpired = (id) => {
-//     setSelectedExpired(prev => 
-//       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-//     );
-//   };
-
-//   const selectAllExpired = () => {
-//     const expiredIds = appointments.filter(a => a.status === 'expired').map(a => a._id);
-//     setSelectedExpired(expiredIds);
-//   };
-
-//   const filteredAppointments = appointments.filter(a => {
-//     if (tab === 'new') return a.status === 'pending' && !a.couponType && !a.rebookingCode;
-//     if (tab === 'rebook') return a.status === 'pending' && a.rebookingCode;
-//     if (tab === 'personal') return a.status === 'pending' && a.couponType === 'personal';
-//     if (tab === 'expired') return a.status === 'expired';
-//     return true;
-//   });
-
-//   return (
-//     <div className="container">
-//       <h1>Doctor Panel</h1>
-
-//       <div className="section">
-//         <h2>Set Price</h2>
-//         <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="Enter price" />
-//         <button onClick={updatePrice}>Update Price</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Booking Message</h2>
-//         <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Enter message" />
-//         <label>
-//           <input type="checkbox" checked={isMessageEnabled} onChange={e => setIsMessageEnabled(e.target.checked)} />
-//           Enable
-//         </label>
-//         <button onClick={updateMessage}>Update</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Generate Coupon</h2>
-//         <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="Discount %" />
-//         <button onClick={generateCoupon}>Generate</button>
-//         <ul>
-//           {coupons.map(c => (
-//             <li key={c.code}>{c.code} ({c.discountPercentage}%) <button onClick={() => deleteCoupon(c.code)}>Delete</button></li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div className="section">
-//         <h2>Set Availability</h2>
-//         {availabilities.map((a, index) => (
-//           <div key={index} className="availability-row">
-//             <input type="date" value={a.date} onChange={e => updateAvailability(index, 'date', e.target.value)} />
-//             <input type="time" value={a.startTime} onChange={e => updateAvailability(index, 'startTime', e.target.value)} />
-//             <input type="time" value={a.endTime} onChange={e => updateAvailability(index, 'endTime', e.target.value)} />
-//             <input type="number" value={a.slotDuration} onChange={e => updateAvailability(index, 'slotDuration', e.target.value)} placeholder="Slot (min)" />
-//             <input type="number" value={a.breakDuration} onChange={e => updateAvailability(index, 'breakDuration', e.target.value)} placeholder="Break (min)" />
-//             <input type="number" value={a.pricePerSlot} onChange={e => updateAvailability(index, 'pricePerSlot', e.target.value)} placeholder="Price" />
-//             {availabilities.length > 1 && <button onClick={() => removeAvailability(index)}>Remove</button>}
-//           </div>
-//         ))}
-//         <button onClick={addAvailability}>Add Another Day</button>
-//         <button onClick={setAvailabilityHandler}>Set Availability</button>
-//       </div>
-
-//       <div className="section">
-//         <h2>Appointments</h2>
-//         <div className="tabs">
-//           <button onClick={() => setTab('new')} className={tab === 'new' ? 'active' : ''}>New</button>
-//           <button onClick={() => setTab('rebook')} className={tab === 'rebook' ? 'active' : ''}>Re-Bookings</button>
-//           <button onClick={() => setTab('personal')} className={tab === 'personal' ? 'active' : ''}>Personal</button>
-//           <button onClick={() => setTab('expired')} className={tab === 'expired' ? 'active' : ''}>Expired</button>
-//         </div>
-//         {tab === 'expired' && (
-//           <div>
-//             <label>
-//               <input type="checkbox" checked={selectedExpired.length === filteredAppointments.length} onChange={selectAllExpired} />
-//               Select All
-//             </label>
-//             <button onClick={() => deleteAppointments(selectedExpired)} disabled={!selectedExpired.length}>Delete Selected</button>
-//           </div>
-//         )}
-//         <ul>
-//           {filteredAppointments.map(a => (
-//             <li key={a._id} onClick={() => setModal(a)}>
-//               {a.firstName} {a.lastName} - {new Date(a.appointmentDate).toLocaleDateString()} {a.appointmentTime} - ₹{a.price}
-//               {a.rebookingCode && ` | Re-booking Code: ${a.rebookingCode}`}
-//               {tab === 'expired' && (
-//                 <input type="checkbox" checked={selectedExpired.includes(a._id)} onChange={() => toggleSelectExpired(a._id)} onClick={e => e.stopPropagation()} />
-//               )}
-//             </li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       {modal && (
-//         <div className="modal">
-//           <div className="modal-content">
-//             <h3>Appointment Details</h3>
-//             <p><strong>First Name:</strong> {modal.firstName}</p>
-//             <p><strong>Last Name:</strong> {modal.lastName}</p>
-//             <p><strong>Phone:</strong> {modal.phone}</p>
-//             <p><strong>Email:</strong> {modal.email}</p>
-//             <p><strong>Date:</strong> {new Date(modal.appointmentDate).toLocaleDateString()}</p>
-//             <p><strong>Time:</strong> {modal.appointmentTime}</p>
-//             <p><strong>Price:</strong> ₹{modal.price}</p>
-//             <p><strong>Meeting Link:</strong> <a href={modal.meetingLink} target="_blank" rel="noopener noreferrer">{modal.meetingLink}</a></p>
-//             {modal.couponCode && <p><strong>Coupon Code:</strong> {modal.couponCode}</p>}
-//             {modal.rebookingCode && (
-//               <>
-//                 <p><strong>Re-booking Code:</strong> {modal.rebookingCode}</p>
-//                 <p><strong>Valid From:</strong> {new Date(modal.rebookingValidFrom).toLocaleDateString()}</p>
-//                 <p><strong>Valid Until:</strong> {new Date(modal.rebookingValidUntil).toLocaleDateString()}</p>
-//               </>
-//             )}
-//             <button onClick={() => setModal(null)}>Close</button>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-// export default DoctorPanel;
-
-// FIXME:
-
-// import React, { useState, useEffect } from 'react';
-// import axios from 'axios';
-
-// function DoctorPanel() {
-//   const [price, setPrice] = useState(1000);
-//   const [message, setMessage] = useState('');
-//   const [isMessageEnabled, setIsMessageEnabled] = useState(false);
-//   const [discount, setDiscount] = useState('');
-//   const [coupons, setCoupons] = useState([]);
-//   const [availability, setAvailability] = useState({ date: '2025-04-06', startTime: '13:00', endTime: '16:00', slotDuration: 30, breakDuration: 15, pricePerSlot: 1000 });
-//   const [appointments, setAppointments] = useState([]);
-//   const [tab, setTab] = useState('new');
-
-//   useEffect(() => {
-//     fetchAppointments();
-//     fetchCoupons();
-//   }, []);
-
-//   const fetchAppointments = async () => {
-//     const res = await axios.get('http://localhost:5000/api/appointments');
-//     setAppointments(res.data);
-//   };
-
-//   const fetchCoupons = async () => {
-//     const res = await axios.get('http://localhost:5000/api/coupons');
-//     setCoupons(res.data.filter(c => c.couponType === 'personal'));
-//   };
-
-//   const updatePrice = async () => {
-//     await axios.post('http://localhost:5000/api/settings/price', { doctorId: 'doctor1', basePrice: price });
-//     alert('Price updated');
-//   };
-
-//   const updateMessage = async () => {
-//     await axios.post('http://localhost:5000/api/settings/message', { doctorId: 'doctor1', bookingMessage: message, isMessageEnabled });
-//     alert('Message updated');
-//   };
-
-//   const generateCoupon = async () => {
-//     const res = await axios.post('http://localhost:5000/api/coupon', { doctorId: 'doctor1', discountPercentage: parseInt(discount) });
-//     setCoupons([...coupons, { code: res.data.code, discountPercentage: discount }]);
-//     setDiscount('');
-//   };
-
-//   const deleteCoupon = async (code) => {
-//     await axios.delete(`http://localhost:5000/api/coupon/${code}`);
-//     setCoupons(coupons.filter(c => c.code !== code));
-//   };
-
-//   const setAvailabilityHandler = async () => {
-//     await axios.post('http://localhost:5000/api/availability', { doctorId: 'doctor1', ...availability });
-//     alert('Availability set');
-//   };
-
-//   const filteredAppointments = appointments.filter(a => {
-//     if (tab === 'new') return !a.couponType;
-//     if (tab === 'rebook') return a.couponType === 'rebooking';
-//     if (tab === 'personal') return a.couponType === 'personal';
-//     return true;
-//   });
-
-//   return (
-//     <div>
-//       <h1>Doctor Panel</h1>
-      
-//       <div>
-//         <h2>Set Price</h2>
-//         <input type="number" value={price} onChange={e => setPrice(e.target.value)} />
-//         <button onClick={updatePrice}>Update Price</button>
-//       </div>
-
-//       <div>
-//         <h2>Booking Message</h2>
-//         <input value={message} onChange={e => setMessage(e.target.value)} />
-//         <label>
-//           <input type="checkbox" checked={isMessageEnabled} onChange={e => setIsMessageEnabled(e.target.checked)} />
-//           Enable
-//         </label>
-//         <button onClick={updateMessage}>Update</button>
-//       </div>
-
-//       <div>
-//         <h2>Generate Coupon</h2>
-//         <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="Discount %" />
-//         <button onClick={generateCoupon}>Generate</button>
-//         <ul>
-//           {coupons.map(c => (
-//             <li key={c.code}>{c.code} ({c.discountPercentage}%) <button onClick={() => deleteCoupon(c.code)}>Delete</button></li>
-//           ))}
-//         </ul>
-//       </div>
-
-//       <div>
-//         <h2>Set Availability</h2>
-//         <input type="date" value={availability.date} onChange={e => setAvailability({ ...availability, date: e.target.value })} />
-//         <input type="time" value={availability.startTime} onChange={e => setAvailability({ ...availability, startTime: e.target.value })} />
-//         <input type="time" value={availability.endTime} onChange={e => setAvailability({ ...availability, endTime: e.target.value })} />
-//         <input type="number" value={availability.slotDuration} onChange={e => setAvailability({ ...availability, slotDuration: e.target.value })} placeholder="Slot Duration (min)" />
-//         <input type="number" value={availability.breakDuration} onChange={e => setAvailability({ ...availability, breakDuration: e.target.value })} placeholder="Break Duration (min)" />
-//         <input type="number" value={availability.pricePerSlot} onChange={e => setAvailability({ ...availability, pricePerSlot: e.target.value })} placeholder="Price per Slot" />
-//         <button onClick={setAvailabilityHandler}>Set</button>
-//       </div>
-
-//       <div>
-//         <h2>Appointments</h2>
-//         <button onClick={() => setTab('new')}>New</button>
-//         <button onClick={() => setTab('rebook')}>Re-Bookings</button>
-//         <button onClick={() => setTab('personal')}>Personal</button>
-//         <ul>
-//           {filteredAppointments.map(a => (
-//             <li key={a._id}>{a.firstName} {a.lastName} - {a.appointmentDate} {a.appointmentTime} - ₹{a.price}</li>
-//           ))}
-//         </ul>
-//       </div>
-//     </div>
-//   );
-// }
-
-// export default DoctorPanel;

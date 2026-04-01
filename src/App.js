@@ -4,6 +4,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import axios from 'axios';
 import DoctorPanel from './pages/DoctorPanel';
+import SavedAvailabilities from './pages/SavedAvailabilities';
 import Login from './pages/Login';
 // import Signup from './pages/SignUp';
 import ForgotPassword from './pages/ForgotPassword';
@@ -13,7 +14,7 @@ const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
 
   const Api = "https://s-doctorbackend-admin.onrender.com"
-  // const local_Api = "http://localhost:5000"
+  // const Api = "http://localhost:5000"
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -43,7 +44,7 @@ const App = () => {
 
   return (
     <Router>
-      <ToastContainer position="top-right" autoClose={5000} />
+      <ToastContainer position="top-right" autoClose={3000} />
       <Routes>
         <Route path="/login" element={<Login />} />
         {/* <Route path="/signup" element={<Signup />} /> */}
@@ -57,6 +58,14 @@ const App = () => {
             </PrivateRoute>
           }
         />
+        <Route
+          path="/admin/availabilities"
+          element={
+            <PrivateRoute>
+              <SavedAvailabilities />
+            </PrivateRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
     </Router>
@@ -64,21 +73,3 @@ const App = () => {
 };
 
 export default App;
-
-// import React from "react";
-// import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-// import DoctorPanel from "./pages/DoctorPanel";
-// import Booking from "./pages/Booking";
-
-// function App() {
-//   return (
-//     <Router>
-//       <Routes>
-//         <Route path="/" element={<Booking />} />
-//         <Route path="/doctor" element={<DoctorPanel />} />
-//       </Routes>
-//     </Router>
-//   );
-// }
-
-// export default App;
