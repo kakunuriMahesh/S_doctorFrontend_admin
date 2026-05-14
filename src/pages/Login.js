@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 
-const Login = () => {
+const Login = ({ setIsAuthenticated }) => {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -20,6 +20,7 @@ const Api = "https://s-doctorbackend-admin.onrender.com"
     try {
       const response = await axios.post(`${Api}/api/admin/login`, formData);
       localStorage.setItem('token', response.data.token);
+      if (setIsAuthenticated) setIsAuthenticated(true);
       toast.success('Login successful!');
       navigate('/admin/panel');
     } catch (error) {
